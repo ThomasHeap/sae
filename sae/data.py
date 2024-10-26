@@ -21,6 +21,7 @@ def chunk_and_tokenize(
     num_proc: int = cpu_count() // 2,
     text_key: str = "text",
     max_seq_len: int = 2048,
+    max_tokens: int | None = None,
     return_final_batch: bool = False,
     load_from_cache_file: bool = True,
 ) -> T:
@@ -38,6 +39,7 @@ def chunk_and_tokenize(
         num_proc: The number of processes to use for tokenization.
         text_key: The key in the dataset to use as the text to tokenize.
         max_seq_len: The maximum length of a batch of input ids.
+        max_tokens: Optional maximum number of tokens to include in the dataset.
         return_final_batch: Whether to return the final batch, which may be smaller
             than the others.
         load_from_cache_file: Whether to load from the cache file.
@@ -45,8 +47,11 @@ def chunk_and_tokenize(
     Returns:
         The chunked and tokenized dataset.
     """
+    total_tokens = 0
 
     def _tokenize_fn(x: dict[str, list]):
+        nonlocal total_tokens
+        
         chunk_size = min(tokenizer.model_max_length, max_seq_len)
         sep = tokenizer.eos_token or "<|endoftext|>"
         joined_text = sep.join([""] + x[text_key])
@@ -84,6 +89,19 @@ def chunk_and_tokenize(
                 " or supply more data."
             )
 
+        # Count total tokens and limit if needed
+        if max_tokens is not None:
+            current_batch_tokens = sum(len(ids) for ids in output["input_ids"])
+            if total_tokens + current_batch_tokens > max_tokens:
+                # Calculate how many complete sequences we can include
+                tokens_left = max_tokens - total_tokens
+                seqs_to_keep = tokens_left // chunk_size
+                if seqs_to_keep == 0:
+                    output = {k: [] for k in output}
+                else:
+                    output = {k: v[:seqs_to_keep] for k, v in output.items()}
+            total_tokens += sum(len(ids) for ids in output["input_ids"])
+
         return output
 
     data = data.map(
@@ -97,6 +115,14 @@ def chunk_and_tokenize(
         remove_columns=get_columns_all_equal(data),
         load_from_cache_file=load_from_cache_file,
     )
+
+    # If we have a token limit and haven't hit it yet (due to batching),
+    # filter the dataset to exactly max_tokens
+    if max_tokens is not None:
+        cumsum = np.cumsum([len(item["input_ids"]) for item in data])
+        cutoff_idx = np.searchsorted(cumsum, max_tokens, side="right")
+        data = data.select(range(min(len(data), cutoff_idx)))
+
     return data.with_format(format, columns=["input_ids"])
 
 

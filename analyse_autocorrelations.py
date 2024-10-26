@@ -4,44 +4,38 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from scipy import stats
-from config import config
+from experiment_config import config
+from config_loader import parse_config_overrides, apply_overrides
+from pipeline_utils import get_dirs_to_process
+import os
 
-def load_autocorrelations(latents_dir):
+def load_autocorrelations(dir_path: Path) -> dict:
     """
-    Load autocorrelation data from all subdirectories in the latents directory.
-    Returns a dictionary mapping layer numbers to their autocorrelation data.
+    Load autocorrelation data from a directory
     """
+    if not (dir_path / "autocorrelations.json").exists():
+        print(f"No autocorrelation data found in {dir_path}")
+        return {}
+        
+    with open(dir_path / "autocorrelations.json") as f:
+        data = json.load(f)
+        
     layer_autocorrs = {}
-    
-    for subdir in latents_dir.iterdir():
-        if not subdir.is_dir():
-            continue
-            
-        autocorr_file = subdir / "autocorrelations.json"
-        if not autocorr_file.exists():
-            continue
-            
-        with open(autocorr_file) as f:
-            data = json.load(f)
-            
-        # Extract layer number from the directory name
-        for module_name in data:
-            layer = int(module_name.split('.')[-1])
-            if layer not in layer_autocorrs:
-                layer_autocorrs[layer] = []
-            layer_autocorrs[layer].append(data[module_name])
+    for module_name in data:
+        layer = int(module_name.split('.')[-1])
+        if layer not in layer_autocorrs:
+            layer_autocorrs[layer] = []
+        layer_autocorrs[layer].append(data[module_name])
     
     return layer_autocorrs
 
-def compute_layer_statistics(layer_autocorrs):
+def compute_layer_statistics(layer_autocorrs: dict) -> dict:
     """
-    Compute statistics about autocorrelation across layers.
-    Returns mean autocorrelation at each lag for each layer.
+    Compute statistics about autocorrelation across layers
     """
     layer_stats = {}
     
     for layer, autocorrs in layer_autocorrs.items():
-        # Combine autocorrelations from different runs
         all_means = np.array([run["mean_autocorr"] for run in autocorrs])
         all_stds = np.array([run["std_autocorr"] for run in autocorrs])
         
@@ -55,14 +49,11 @@ def compute_layer_statistics(layer_autocorrs):
     
     return layer_stats
 
-def plot_layer_autocorrelations(layer_stats, save_dir):
-    """
-    Create visualizations of the autocorrelation patterns.
-    """
-    # Set up the style
+def plot_layer_autocorrelations(layer_stats: dict, save_dir: Path, model_name: str):
+    """Create visualizations of the autocorrelation patterns"""
     plt.style.use('seaborn')
     
-    # 1. Plot mean autocorrelation at different lags for each layer
+    # Plot mean autocorrelation at different lags for each layer
     plt.figure(figsize=(12, 8))
     layers = sorted(layer_stats.keys())
     for layer in layers:
@@ -73,28 +64,28 @@ def plot_layer_autocorrelations(layer_stats, save_dir):
     
     plt.xlabel("Lag")
     plt.ylabel("Autocorrelation")
-    plt.title("Autocorrelation by Layer and Lag")
+    plt.title(f"Autocorrelation by Layer and Lag - {model_name}")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(save_dir / "autocorrelation_by_layer.png", dpi=300, bbox_inches='tight')
+    plt.savefig(save_dir / f"{model_name}_autocorrelation_by_layer.png", dpi=300, bbox_inches='tight')
     plt.close()
     
-    # 2. Plot mean autocorrelation across layers for different lags
+    # Plot layer-wise autocorrelation for different lags
     plt.figure(figsize=(12, 8))
-    lags_to_plot = [1, 2, 5, 10]  # Select specific lags to analyze
+    lags_to_plot = [1, 2, 5, 10]
     for lag in lags_to_plot:
         layer_means = [layer_stats[layer]["mean"][lag] for layer in layers]
         plt.plot(layers, layer_means, label=f"Lag {lag}", marker='o')
     
     plt.xlabel("Layer")
     plt.ylabel("Autocorrelation")
-    plt.title("Layer-wise Autocorrelation for Different Lags")
+    plt.title(f"Layer-wise Autocorrelation - {model_name}")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(save_dir / "autocorrelation_progression.png", dpi=300, bbox_inches='tight')
+    plt.savefig(save_dir / f"{model_name}_autocorrelation_progression.png", dpi=300, bbox_inches='tight')
     plt.close()
     
-    # 3. Create heatmap of autocorrelations
+    # Create heatmap
     plt.figure(figsize=(12, 8))
     heatmap_data = np.array([layer_stats[layer]["mean"] for layer in layers])
     sns.heatmap(heatmap_data, 
@@ -104,14 +95,12 @@ def plot_layer_autocorrelations(layer_stats, save_dir):
                 center=0)
     plt.xlabel("Lag")
     plt.ylabel("Layer")
-    plt.title("Autocorrelation Heatmap")
-    plt.savefig(save_dir / "autocorrelation_heatmap.png", dpi=300, bbox_inches='tight')
+    plt.title(f"Autocorrelation Heatmap - {model_name}")
+    plt.savefig(save_dir / f"{model_name}_autocorrelation_heatmap.png", dpi=300, bbox_inches='tight')
     plt.close()
 
-def analyze_layer_trends(layer_stats):
-    """
-    Perform statistical analysis of autocorrelation trends across layers.
-    """
+def analyze_trends(layer_stats: dict) -> dict:
+    """Analyze statistical trends in the autocorrelation data"""
     layers = sorted(layer_stats.keys())
     n_lags = len(layer_stats[layers[0]]["mean"])
     
@@ -121,7 +110,6 @@ def analyze_layer_trends(layer_stats):
         "mean_autocorr_by_layer": {}
     }
     
-    # Analyze correlation between layer depth and autocorrelation for each lag
     for lag in range(n_lags):
         layer_means = [layer_stats[layer]["mean"][lag] for layer in layers]
         correlation, p_value = stats.pearsonr(layers, layer_means)
@@ -129,41 +117,44 @@ def analyze_layer_trends(layer_stats):
         trends["correlation_with_depth"][lag] = correlation
         trends["significance"][lag] = p_value
     
-    # Compute mean autocorrelation across all lags for each layer
     for layer in layers:
         trends["mean_autocorr_by_layer"][layer] = np.mean(layer_stats[layer]["mean"])
     
     return trends
 
-def main():
-    # Create results directory
-    results_dir = config.saved_models_dir / "autocorrelation_analysis"
-    results_dir.mkdir(parents=True, exist_ok=True)
+def process_model_directory(dir_path: Path, results_dir: Path):
+    """Process autocorrelation analysis for a single model directory"""
+    print(f"Processing {dir_path}")
     
-    # Load and analyze data
-    print("Loading autocorrelation data...")
-    layer_autocorrs = load_autocorrelations(config.saved_latents_dir)
+    # Load autocorrelation data
+    layer_autocorrs = load_autocorrelations(dir_path)
+    if not layer_autocorrs:
+        return
     
-    print("Computing layer statistics...")
+    # Compute statistics
     layer_stats = compute_layer_statistics(layer_autocorrs)
     
-    print("Analyzing layer trends...")
-    trends = analyze_layer_trends(layer_stats)
+    # Analyze trends
+    trends = analyze_trends(layer_stats)
     
     # Save trend analysis
-    with open(results_dir / "trend_analysis.json", "w") as f:
+    model_name = dir_path.name.split('_')[-1]
+    model_results_dir = results_dir / model_name
+    model_results_dir.mkdir(parents=True, exist_ok=True)
+    
+    with open(model_results_dir / "trend_analysis.json", "w") as f:
         json.dump({
             "correlation_with_depth": {str(k): v for k, v in trends["correlation_with_depth"].items()},
             "significance": {str(k): v for k, v in trends["significance"].items()},
             "mean_autocorr_by_layer": {str(k): v for k, v in trends["mean_autocorr_by_layer"].items()}
         }, f, indent=2)
     
-    print("Creating visualizations...")
-    plot_layer_autocorrelations(layer_stats, results_dir)
+    # Create visualizations
+    plot_layer_autocorrelations(layer_stats, model_results_dir, model_name)
     
-    # Print summary of findings
-    print("\nAnalysis Summary:")
-    print("-----------------")
+    # Print summary
+    print(f"\nAnalysis Summary for {model_name}:")
+    print("-" * 40)
     print("Correlation between layer depth and autocorrelation:")
     for lag, corr in trends["correlation_with_depth"].items():
         p_value = trends["significance"][lag]
@@ -175,6 +166,26 @@ def main():
     print("\nMean autocorrelation by layer:")
     for layer, mean_autocorr in trends["mean_autocorr_by_layer"].items():
         print(f"Layer {layer}: {mean_autocorr:.3f}")
+
+def main():
+    # Load and apply configuration
+    overrides = parse_config_overrides()
+    apply_overrides(config, overrides)
+    
+    os.environ['HF_HOME'] = str(config.cache_dir)
+    
+    # Create results directory
+    results_dir = config.saved_models_dir / "autocorrelation_analysis"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get directories to process
+    dirs_to_process = get_dirs_to_process(config.saved_latents_dir, 
+                                        overrides.get('model_dirs'),
+                                        latents_prefix=True)
+    
+    # Process each directory
+    for dir_path in dirs_to_process:
+        process_model_directory(dir_path, results_dir)
 
 if __name__ == "__main__":
     main()

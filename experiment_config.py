@@ -14,19 +14,16 @@ class Config:
     # Model settings
     model_name = "EleutherAI/pythia-70m-deduped"
     use_step0 = False
-    reinit_non_embedding = False
+    reinit_non_embedding = True
 
     # Dataset settings
-    dataset_repo = "togethercomputer"
-    dataset_name = "togethercomputer/RedPajama-Data-1T-Sample"  # Updated to include full path
+    dataset = "togethercomputer/RedPajama-Data-1T-Sample"  # Full path format
+    dataset_name = None  # Optional configuration name
     dataset_split = "train"
-    tokenized_dataset_path = cache_dir / "togethercomputer" / "RedPajama-Data-1T-Sample"
-    max_train_tokens = 1_000_000_000  # 1 billion tokens
-    chunk_size = 1024
-    
+    max_tokens = 1_000_000_000  # 1 billion tokens
+
     # Training settings
-    batch_size = 2
-    run_name = "sae-trained-reinit"
+    batch_size = 1
 
     # Feature extraction settings
     feature_width = 262143
@@ -45,28 +42,67 @@ class Config:
 
     # Cache settings
     cache_batch_size = 8
-    cache_ctx_len = 256  # This will affect the maximum possible lag for autocorrelation
+    cache_ctx_len = 256
     cache_n_tokens = 10_000_000
-    
+
     # Autocorrelation settings
-    max_lag_ratio = 0.5  # Maximum lag will be this ratio * cache_ctx_len
+    max_lag_ratio = 0.5
 
     # Explanation generator settings
     layer_to_explain = 10
     num_latents_to_explain = 10
     num_parallel_latents = 10
 
-    @classmethod
-    def get_device_map(cls):
+    @property
+    def device_map(self):
+        """Get the device mapping configuration"""
         return {"": "cuda"}
 
-    @classmethod
-    def get_torch_dtype(cls):
+    @property
+    def torch_dtype(self):
+        """Get the torch dtype to use"""
         return "bfloat16"
+    
+    @property
+    def save_directory(self):
+        """Get the save directory using the automatically generated run name"""
+        return self.saved_models_dir / self.run_name
+    
+    @property
+    def dataset_short_name(self):
+        """Get the dataset name without organization prefix"""
+        # Split on '/' and get the last part
+        base_name = self.dataset.split('/')[-1].lower()
+        # If there's a config, append it
+        if self.dataset_name:
+            base_name = f"{base_name}_{self.dataset_name}"
+        return base_name
 
-    @classmethod
-    def get_save_directory(cls):
-        token_count = cls.max_train_tokens // 1_000_000  # Convert to millions
-        return cls.saved_models_dir / f"{cls.dataset_name.split('/')[-1]}_{token_count}M_{cls.run_name}"
+    @property
+    def tokenized_dataset_path(self):
+        """Automatically generate path for tokenized dataset"""
+        sanitized_name = self.dataset_short_name.replace('-', '_')
+        return self.cache_dir / "tokenized" / f"{sanitized_name}_{self.dataset_split}"
+
+    @property
+    def run_name(self):
+        """Automatically generate run name based on settings"""
+        init_strategy = "reinit" if self.reinit_non_embedding else "no-reinit"
+        token_count = self.max_tokens // 1_000_000
+        return f"{self.dataset_short_name}_{token_count}M_{init_strategy}"
+
+    def get_dataset_args(self):
+        """Get the correct arguments for loading the dataset"""
+        if self.dataset_name is not None:
+            return {
+                "path": self.dataset,
+                "name": self.dataset_name,
+                "split": self.dataset_split,
+            }
+        else:
+            return {
+                "path": self.dataset,
+                "split": self.dataset_split,
+            }
 
 config = Config()
