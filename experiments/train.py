@@ -28,12 +28,28 @@ else:
                            trust_remote_code=True,
                            cache_dir=config.cache_dir)
     
+    #save half of dataset as train, half as test
+    dataset = dataset.train_test_split(test_size=0.5, seed=config.random_seed)
+    train_dataset = dataset['train']
+    test_dataset = dataset['test']
+    
+    
     print("Tokenizing dataset...")
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-    tokenized = chunk_and_tokenize(dataset, tokenizer, max_tokens=config.max_tokens)
+    tokenized = chunk_and_tokenize(train_dataset, tokenizer, text_key='raw_content')
     
     tokenized.save_to_disk(str(config.tokenized_dataset_path))
 
+
+#print number of tokens in dataset
+print(tokenized['input_ids'][0].shape)
+print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0].shape[0]}")
+
+#restrict to 1 billion tokens
+tokenized = tokenized.select(range(min(len(tokenized), config.max_tokens // tokenized['input_ids'][0].shape[0])))
+
+#print number of tokens in dataset
+print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0].shape[0]}")
 
 
 gpt = AutoModelForCausalLM.from_pretrained(
@@ -52,11 +68,13 @@ if config.reinit_non_embedding:
         revision="step0"
     )
     
-    for name, param in gpt.named_parameters():
-        if "embed" not in name:
-            param.data = gpt_step0.state_dict()[name].data
+    for name, param in gpt_step0.named_parameters():
+        if "embed" in name:
+            print(f"Replacing embedding: {name}")
+            param.data = gpt.state_dict()[name].data
     
-    del gpt_step0
+    del gpt
+    gpt = gpt_step0
 
 # Use the new method to get the save directory
 save_dir = config.save_directory

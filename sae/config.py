@@ -64,6 +64,8 @@ class TrainConfig(Serializable):
     save_every: int = 1000
     """Save SAEs every `save_every` steps."""
 
+    max_tokens: int = 1_000_000_000
+
     log_to_wandb: bool = True
     run_name: str | None = None
     wandb_log_frequency: int = 1

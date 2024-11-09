@@ -70,6 +70,8 @@ def parse_config_overrides() -> Dict[str, Any]:
     parser.add_argument('--max_tokens', type=int, help='Maximum tokens to process')
     parser.add_argument('--batch_size', type=int, help='Training batch size')
     parser.add_argument('--model_dirs', nargs='*', help='Specific model directories to process')
+    parser.add_argument('--reinit_non_embedding', action='store_true', help='Reinitialize non-embedding layers')
+    parser.add_argument('--use_step0', action='store_true', help='Use step0 model')
     
     args, _ = parser.parse_known_args()
     return {k: v for k, v in vars(args).items() if v is not None}

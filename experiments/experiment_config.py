@@ -14,10 +14,10 @@ class Config:
     # Model settings
     model_name = "EleutherAI/pythia-70m-deduped"
     use_step0 = False
-    reinit_non_embedding = True
+    reinit_non_embedding = False
 
     # Dataset settings
-    dataset = "togethercomputer/RedPajama-Data-1T-Sample"  # Full path format
+    dataset = "EleutherAI/rpj-v2-sample"  # Full path format
     dataset_name = None  # Optional configuration name
     dataset_split = "train"
     max_tokens = 1_000_000_000  # 1 billion tokens
@@ -38,7 +38,7 @@ class Config:
     example_ctx_len = 32
     n_random = 100
     train_type = "top"
-    test_type = "even"
+    test_type = "quantiles"
 
     # Cache settings
     cache_batch_size = 8
@@ -49,9 +49,10 @@ class Config:
     max_lag_ratio = 0.5
 
     # Explanation generator settings
-    layer_to_explain = 10
     num_latents_to_explain = 10
     num_parallel_latents = 10
+    
+    random_seed = 42
 
     @property
     def device_map(self):
@@ -87,7 +88,14 @@ class Config:
     @property
     def run_name(self):
         """Automatically generate run name based on settings"""
-        init_strategy = "reinit" if self.reinit_non_embedding else "no-reinit"
+        
+        if self.reinit_non_embedding:
+            init_strategy = "non_embedding_random"
+        elif self.use_step0:
+            init_strategy = "step0"
+        else:
+            init_strategy = "trained"
+        
         token_count = self.max_tokens // 1_000_000
         return f"{self.dataset_short_name}_{token_count}M_{init_strategy}"
 
