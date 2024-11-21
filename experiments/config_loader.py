@@ -72,6 +72,8 @@ def parse_config_overrides() -> Dict[str, Any]:
     parser.add_argument('--model_dirs', nargs='*', help='Specific model directories to process')
     parser.add_argument('--reinit_non_embedding', action='store_true', help='Reinitialize non-embedding layers')
     parser.add_argument('--use_step0', action='store_true', help='Use step0 model')
+    parser.add_argument('--text_key', type=str, help='Random seed')
+    
     
     args, _ = parser.parse_known_args()
     return {k: v for k, v in vars(args).items() if v is not None}

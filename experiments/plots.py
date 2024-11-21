@@ -7,10 +7,10 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Plot model comparisons for a specific dataset')
+    parser = argparse.ArgumentParser(description='Plot model comparisons with random noise baseline')
     parser.add_argument('--dataset', type=str, required=True, 
                       help='Dataset name (e.g., wikitext_wikitext-103-raw-v1 or redpajama-data-1t-sample)')
-    parser.add_argument('--base-dir', type=str, default='saved_models',
+    parser.add_argument('--base-dir', type=str, default='saved_latents',
                       help='Base directory containing model results')
     parser.add_argument('--y-min', type=float, default=None,
                       help='Minimum value for y-axis')
@@ -20,6 +20,9 @@ def parse_args():
 
 def extract_model_info(model_dir: str) -> Tuple[str, str]:
     """Extract size and init strategy from model directory name"""
+    if model_dir == "random_noise":
+        return "Random", "baseline"
+    
     parts = model_dir.split('_')
     size = parts[2]  # e.g., '1000M'
     if 'non_embedding' in model_dir:
@@ -54,18 +57,35 @@ def calculate_metrics(data: List[Dict]) -> Tuple[float, float]:
     
     return balanced_acc, right_fraction
 
+def get_feature_count(results_dir: Path) -> int:
+    """Get the feature count from any layer (should be consistent across layers)"""
+    explanation_dir = results_dir / "explanations"
+    if not explanation_dir.exists():
+        return 0
+        
+    layer_dirs = list(explanation_dir.glob('layer_*'))
+    if not layer_dirs:
+        return 0
+        
+    # Take first layer's feature count as they should all be the same
+    feature_files = list(layer_dirs[0].glob('feature_*.txt'))
+    return len(feature_files)
+
 def load_model_results(model_dir: Path) -> Dict[str, Dict]:
     """Load and process results for a single model directory"""
     results = {
         'balanced_acc': [], 'balanced_acc_std': [],
         'right_frac': [], 'right_frac_std': [],
-        'layers': []
+        'layers': [], 'feature_count': None
     }
     
     explanations_dir = model_dir / "explanations"
     if not explanations_dir.exists():
         print(f"No explanations directory found in {model_dir}")
         return None
+    
+    # Get feature count once from any layer
+    results['feature_count'] = get_feature_count(model_dir)
     
     # Get all layer directories
     layer_dirs = sorted(explanations_dir.glob('layer_*'), 
@@ -76,8 +96,6 @@ def load_model_results(model_dir: Path) -> Dict[str, Dict]:
         
         # Find all feature results files
         feature_files = layer_dir.glob('*.txt')
-        
-        #only files with "score" in the name
         feature_files = [f for f in feature_files if "score" in f.name]
         
         layer_balanced_accs = []
@@ -106,7 +124,7 @@ def load_model_results(model_dir: Path) -> Dict[str, Dict]:
 def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = None, y_max: float = None):
     """Create comparison plots for models of a specific dataset"""
     model_dirs = [d for d in base_dir.iterdir() 
-                 if d.is_dir() and d.name.startswith(dataset_name)]
+                 if d.is_dir() and (d.name.startswith("latents_" + dataset_name) or d.name == "random_noise")]
     
     if not model_dirs:
         print(f"No models found for dataset {dataset_name}")
@@ -118,6 +136,7 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
     markers = ['o', 's', '^', 'D', 'v']
     
     valid_layers = [0, 1, 2, 3, 4]
+    feature_count = None
     
     for i, model_dir in enumerate(model_dirs):
         print(f"\nProcessing model: {model_dir.name}")
@@ -126,8 +145,14 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
             print(f"No valid results found for {model_dir.name}")
             continue
             
+        # Store feature count (should be the same for all models)
+        if feature_count is None:
+            feature_count = results['feature_count']
+            
         size, init = extract_model_info(model_dir.name)
         label = f"{size} {init}"
+        if model_dir.name == "random_noise_injected_normal_model":
+            label = "Random model, normal SAE"
         color = colors[i % len(colors)]
         marker = markers[i % len(markers)]
         
@@ -157,14 +182,18 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
         print(f"Balanced accuracy: {balanced_acc}")
         print(f"Right fraction: {right_frac}")
     
+    # Add feature count to titles
+    feature_count_str = f"\n{feature_count} features per layer" if feature_count else ""
+    
     # Configure plots
     for ax, title, ylabel in [(ax1, 'Balanced Accuracy', 'Balanced Accuracy'),
                              (ax2, 'Right Predictions', 'Fraction of Right Predictions')]:
         ax.set_xlabel('Layer', fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(f'{dataset_name}\n{title}', fontsize=14, pad=20)
+        ax.set_title(f'{dataset_name}\n{title}{feature_count_str}', 
+                    fontsize=14, pad=20)
         ax.grid(True, linestyle='--', alpha=0.7)
-        ax.legend(frameon=True, fontsize=10)
+        ax.legend(frameon=True, fontsize=10, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.tick_params(axis='both', which='major', labelsize=10)
         ax.set_facecolor('#f8f8f8')
         ax.spines['top'].set_visible(False)
@@ -181,9 +210,10 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
     
     plt.tight_layout()
     
+    # Save plots in the random_noise/explanations directory
     plots_dir = base_dir / "comparison_plots"
-    plots_dir.mkdir(exist_ok=True)
-    save_path = plots_dir / f"{dataset_name}_model_comparisons.png"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    save_path = plots_dir / f"{dataset_name}_model_comparisons.pdf"
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     

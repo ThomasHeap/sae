@@ -20,13 +20,19 @@ class Config:
     dataset = "EleutherAI/rpj-v2-sample"  # Full path format
     dataset_name = None  # Optional configuration name
     dataset_split = "train"
+    text_key = "raw_content"
     max_tokens = 1_000_000_000  # 1 billion tokens
 
     # Training settings
-    batch_size = 1
-
+    batch_size = 4
+    expansion_factor=64
+    normalize_decoder=True,
+    num_latents=0
+    k=32
+    multi_topk=False
+    
     # Feature extraction settings
-    feature_width = 262143
+    feature_width = 32768
     min_examples = 200
     max_examples = 10000
     n_splits = 5
@@ -36,9 +42,9 @@ class Config:
     n_examples_test = 100
     n_quantiles = 10
     example_ctx_len = 32
-    n_random = 100
+    n_random = 30
     train_type = "top"
-    test_type = "quantiles"
+    test_type = "top"
 
     # Cache settings
     cache_batch_size = 8
@@ -49,8 +55,7 @@ class Config:
     max_lag_ratio = 0.5
 
     # Explanation generator settings
-    num_latents_to_explain = 10
-    num_parallel_latents = 10
+    num_parallel_latents = 5
     
     random_seed = 42
 

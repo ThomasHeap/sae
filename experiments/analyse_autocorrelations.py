@@ -158,7 +158,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     
     return autocorrelations, max_lag
 
-def plot_combined_autocorrelations(all_layer_data: dict, model_dir: Path):
+def plot_combined_autocorrelations(all_layer_data: dict, latents_dir: Path):
     """Create combined visualizations of the autocorrelation patterns across layers"""
     plt.rcParams.update({
         'figure.facecolor': 'white',
@@ -169,7 +169,7 @@ def plot_combined_autocorrelations(all_layer_data: dict, model_dir: Path):
         'grid.alpha': 0.6,
     })
     
-    save_dir = model_dir / "autocorrelation_analysis"
+    save_dir = latents_dir / "autocorrelation_analysis"
     save_dir.mkdir(parents=True, exist_ok=True)
     
     n_lags = len(next(iter(all_layer_data[0].values()))["mean_autocorr"])
@@ -305,7 +305,7 @@ def main():
         all_layer_data.append(layer_data)
     
     # Create combined visualizations
-    plot_combined_autocorrelations(all_layer_data, config.save_directory)
+    plot_combined_autocorrelations(all_layer_data, config.saved_latents_dir / f"latents_{config.save_directory.name}")
 
 if __name__ == "__main__":
     main()

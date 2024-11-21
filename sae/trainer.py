@@ -279,6 +279,10 @@ class SaeTrainer:
 
                     loss = out.fvu + self.cfg.auxk_alpha * out.auxk_loss + out.multi_topk_fvu / 8
                     loss.div(acc_steps).backward()
+                    if loss.isnan().any():
+                        print(chunk)
+                        print(out)
+                        raise RuntimeError("NaN loss encountered")
 
                     # Update the did_fire mask
                     did_fire[name][out.latent_indices.flatten()] = True
@@ -334,6 +338,7 @@ class SaeTrainer:
                             info[f"auxk/{name}"] = avg_auxk_loss[name]
                         if self.cfg.sae.multi_topk:
                             info[f"multi_topk_fvu/{name}"] = avg_multi_topk_fvu[name]
+                        
 
                     avg_auxk_loss.clear()
                     avg_fvu.clear()
@@ -348,9 +353,12 @@ class SaeTrainer:
                         wandb.log(info, step=step)
 
                 if (step + 1) % self.cfg.save_every == 0:
-                    self.save()
+                    self.save(checkpoint=True)
+                    # print info to file
+                    
                 
             self.global_step += 1
+            pbar.set_postfix({'loss': loss.item()})
             pbar.update()
 
         self.save()
@@ -433,10 +441,12 @@ class SaeTrainer:
         # Return a list of results, one for each layer
         return {hook: buffer[:, i] for i, hook in enumerate(local_hooks)}
 
-    def save(self):
+    def save(self, checkpoint: bool = False):
         """Save the SAEs to disk."""
 
-        path = self.cfg.run_name or "sae-ckpts"
+        path = self.cfg.run_name
+        if checkpoint:
+            path = f"{path}/step{self.global_step}"
         rank_zero = not dist.is_initialized() or dist.get_rank() == 0
 
         if rank_zero or self.cfg.distribute_modules:

@@ -2,8 +2,8 @@ from nnsight import LanguageModel
 from sae_auto_interp.autoencoders import load_eai_autoencoders
 from sae_auto_interp.config import CacheConfig
 from sae_auto_interp.features import FeatureCache
-from data import load_tokenized_data
-# from sae_auto_interp.utils import load_tokenized_data
+#from data import load_tokenized_data
+from sae_auto_interp.utils import load_tokenized_data
 import os
 import torch
 from pathlib import Path
@@ -68,44 +68,34 @@ def process_model():
         module="res"
     )
 
-    # print(f"Number of features available per layer:")
-    # for module, ae in submodule_dict.items():
-    #     print(f"{module}: {ae.width} features")
+    print(submodule_dict)
 
-    cfg = CacheConfig(
-        dataset_repo=config.dataset,
-        dataset_name=config.dataset_name,
-        dataset_split=config.dataset_split,
-        batch_size=config.cache_batch_size,
-        ctx_len=config.cache_ctx_len,
-        n_tokens=config.cache_n_tokens,
-        n_splits=5,
-    )
     # cfg = CacheConfig(
-    #     dataset_repo='Salesforce/wikitext',
-    #     dataset_name='wikitext-103-raw-v1',
-    #     dataset_split='train',
-    #     batch_size=8,
-    #     ctx_len=256,
-    #     n_tokens=5000,
+    #     dataset_repo=config.dataset,
+    #     dataset_name=config.dataset_name,
+    #     dataset_split=config.dataset_split,
+    #     batch_size=config.cache_batch_size,
+    #     ctx_len=config.cache_ctx_len,
+    #     n_tokens=config.cache_n_tokens,
     #     n_splits=5,
-    # )
+    # )    
+    # 00_000,
+    
+    cfg = CacheConfig(
+        dataset_repo="EleutherAI/rpj-v2-sample",
+        dataset_split="train[:1%]",
+        batch_size=8    ,
+        ctx_len=256,
+        n_tokens=1_000_000,
+        n_splits=5,
+    )  
     
     tokens = load_tokenized_data(
         ctx_len=cfg.ctx_len,
         tokenizer=model.tokenizer,
         dataset_repo=cfg.dataset_repo,
-        dataset_name=cfg.dataset_name,
         dataset_split=cfg.dataset_split,
-        dataset_row="raw_content",
-        seed=config.random_seed,
-        cache=config.cache_dir
     )
-
-    # #print some examples
-    # print("Example tokens:")
-    # for i in range(5):
-    #     print(f"Example {i}: {tokens[i]}")
         
 
     cache = FeatureCache(

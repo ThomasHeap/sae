@@ -110,6 +110,7 @@ class Sae(nn.Module):
             snapshot_download(
                 name,
                 allow_patterns=f"{hookpoint}/*" if hookpoint is not None else None,
+                cache_dir = 'cache'
             )
         )
         if hookpoint is not None:
@@ -118,7 +119,7 @@ class Sae(nn.Module):
         # No layer specified, and there are multiple layers
         elif not repo_path.joinpath("cfg.json").exists():
             raise FileNotFoundError("No config file found; try specifying a layer.")
-
+        
         return Sae.load_from_disk(repo_path, device=device, decoder=decoder)
 
     @staticmethod

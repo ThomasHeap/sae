@@ -1,5 +1,10 @@
 from transformers import AutoTokenizer
 from pathlib import Path
+from datasets import load_dataset, load_from_disk
+import multiprocess
+multiprocess.set_start_method("spawn", force=True)
+
+
 
 def load_tokenized_data(
     ctx_len: int,
@@ -18,9 +23,12 @@ def load_tokenized_data(
     from transformer_lens import utils
     print(dataset_repo,dataset_name,dataset_split)
     
-    if Path(f"{cache}/tokenized_data/{dataset_name}_{dataset_split}").exists():
+    if Path(f"{cache}/tokenized/{dataset_repo.split('/')[-1]}_test").exists():
         print("Loading tokenized data from cache")
-        tokens = utils.TokenizedDataset.load_from_disk(f"{cache}/tokenized_data/{dataset_name}_{dataset_split}")
+        tokens = load_from_disk(f"{cache}/tokenized/{dataset_repo.split('/')[-1]}_test")
+    # if Path(f"{cache}/tokenized/{dataset_repo.split('/')[-1]}_train").exists():
+    #     print("Loading tokenized data from cache")
+    #     tokens = load_from_disk(f"{cache}/tokenized/{dataset_repo.split('/')[-1]}_train")
     else:
         #load dataset from dataset_dir if provided
         if dataset_name is not None:
@@ -32,14 +40,13 @@ def load_tokenized_data(
         data = data.train_test_split(test_size=0.5, seed=seed)
         data = data['test']
         
-        #half the data
-        data = data.select(range(len(data)//2))
+        #dont need all that data
+        data = data.select(range(len(data)//12))
         
         tokens = utils.tokenize_and_concatenate(data, tokenizer, max_length=ctx_len,column_name=dataset_row)
+        tokens.save_to_disk(f"{cache}/tokenized/{dataset_repo.split('/')[-1]}_test")
 
-        tokens = tokens.shuffle(seed)["tokens"]
+    tokens = tokens.shuffle(seed)['tokens']
         
-        #save tokenized data
-        tokens.save_to_disk(f"{cache}/tokenized_data/{dataset_name}_{dataset_split}")
 
     return tokens

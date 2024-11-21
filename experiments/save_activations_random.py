@@ -2,12 +2,14 @@ from nnsight import LanguageModel
 from sae_auto_interp.autoencoders import load_eai_autoencoders
 from sae_auto_interp.config import CacheConfig
 from sae_auto_interp.features import FeatureCache
-from data import load_tokenized_data
+#from data import load_tokenized_data
+from sae_auto_interp.utils import load_tokenized_data
 import os
 import torch
 from pathlib import Path
 from experiment_config import config
 from config_loader import parse_config_overrides, apply_overrides
+import argparse
 
 class NoiseEmbeddingModel:
     def __init__(self, model, embedding_dim=None, std=1.0):
@@ -15,7 +17,7 @@ class NoiseEmbeddingModel:
         self.std = std
         # If embedding_dim not provided, get it from the model's embedding layer
         if embedding_dim is None:
-            embedding_dim = self.model.model.gpt_neox.embed_in.embedding_dim
+            embedding_dim = self.model.gpt_neox.embed_in.embedding_dim
         self.embedding_dim = embedding_dim
         self._setup_embedding_hook()
         
@@ -30,7 +32,7 @@ class NoiseEmbeddingModel:
             return noise  # Completely replace embeddings with noise
         
         # Get the embedding layer
-        embed_layer = self.model.model.gpt_neox.embed_in
+        embed_layer = self.model.gpt_neox.embed_in
         self.hook_handle = embed_layer.register_forward_hook(replace_with_noise)
         
     def __getattr__(self, name):
@@ -45,7 +47,7 @@ class NoiseEmbeddingModel:
 def process_model(noise_std=1.0):
     """Process model activations with noise replacement"""
     # Get model directory from config
-    model_dir = config.save_directory
+    model_dir = Path('saved_models/random') 
     print(f"\nProcessing model in {model_dir}")
     print(f"Reinitialization mode: {'reinit' if config.reinit_non_embedding else 'no-reinit'}")
     print(f"Using noise std: {noise_std}")
@@ -99,24 +101,19 @@ def process_model(noise_std=1.0):
     )
 
     cfg = CacheConfig(
-        dataset_repo=config.dataset,
-        dataset_name=config.dataset_name,
-        dataset_split=config.dataset_split,
-        batch_size=config.cache_batch_size,
-        ctx_len=config.cache_ctx_len,
-        n_tokens=config.cache_n_tokens,
+        dataset_repo="EleutherAI/rpj-v2-sample",
+        dataset_split="train[:1%]",
+        batch_size=8    ,
+        ctx_len=256,
+        n_tokens=1_000_000,
         n_splits=5,
-    )
+    )  
     
     tokens = load_tokenized_data(
         ctx_len=cfg.ctx_len,
         tokenizer=model.tokenizer,
         dataset_repo=cfg.dataset_repo,
-        dataset_name=cfg.dataset_name,
         dataset_split=cfg.dataset_split,
-        dataset_row="raw_content",
-        seed=config.random_seed,
-        cache=config.cache_dir
     )
 
     cache = FeatureCache(
@@ -129,7 +126,7 @@ def process_model(noise_std=1.0):
     cache.run(cfg.n_tokens, tokens)
             
     # Save cache data
-    save_dir = config.saved_latents_dir / f"latents_{model_dir.name}_pure_noise_{noise_std}"
+    save_dir = "saved_latents/random_noise"
     print(f"Saving results to {save_dir}")
     
     cache.save_splits(

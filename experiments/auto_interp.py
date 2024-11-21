@@ -2,7 +2,7 @@ from os import getenv
 import asyncio
 import torch
 import orjson
-from sae_auto_interp.clients import OpenRouter
+from sae_auto_interp.clients import OpenRouter, Offline
 from sae_auto_interp.config import ExperimentConfig, FeatureConfig
 from sae_auto_interp.explainers import DefaultExplainer
 from sae_auto_interp.features import FeatureDataset, FeatureLoader
@@ -49,19 +49,19 @@ def format_example(tokens, activations, tokenizer):
     }
 
 async def process_layer_directory(layer: int, latents_dir: Path, client, feature_cfg: FeatureConfig, 
-                                experiment_cfg: ExperimentConfig, save_dir: Path):
+                                experiment_cfg: ExperimentConfig):
     """Process a single layer in a directory using selected features"""
     print(f"Processing layer {layer}")
-    
+    save_dir = latents_dir
     # Load selected features
-    features_path = save_dir / "selected_features.json"
+    features_path = save_dir / "max/selected_features.json"
     if not features_path.exists():
         raise FileNotFoundError(f"Selected features file not found: {features_path}")
     
     with open(features_path, "r") as f:
         selected_features = json.load(f)
     
-    layer_features = selected_features.get(f"layer_{layer}")
+    layer_features = selected_features.get(f"layer_{layer}")[:experiment_cfg.n_random]
     if not layer_features:
         raise ValueError(f"No selected features found for layer {layer}")
     
@@ -140,6 +140,7 @@ async def process_layer_directory(layer: int, latents_dir: Path, client, feature
             return result
 
 
+
         # Builds the record from result returned by the pipeline
         def scorer_preprocess(result):
             record = result.record   
@@ -204,12 +205,14 @@ async def main():
     print(f"Reinitialization mode: {'reinit' if config.reinit_non_embedding else 'no-reinit'}")
     print(f"Using model: {config.model_name}")
     print(f"Using dataset: {config.dataset}")
-    print(f"Number of features to explain per layer: {config.num_latents_to_explain}")
+    print(f"Number of features to explain per layer: {config.n_random}")
     if config.dataset_name:
         print(f"Dataset config: {config.dataset_name}")
     
     # Initialize API client with CLI provided key
     client = OpenRouter("openai/gpt-4o-mini", api_key=args.api_key)
+    # client = Offline("cache/models_hugging-quants_Meta-Llama-3.1-70B-Instruct-AWQ-INT4/snapshots/2123003760781134cfc31124aa6560a45b491fdf",
+    #                  max_memory=0.8,max_model_len=5120, num_gpus=1)
     
     # Get corresponding latents directory
     model_dir = config.save_directory
@@ -239,7 +242,7 @@ async def main():
     tasks = []
     for layer in range(5):
         tasks.append(process_layer_directory(
-            layer, latents_dir, client, feature_cfg, experiment_cfg, model_dir
+            layer, latents_dir, client, feature_cfg, experiment_cfg
         ))
     
     # Run all tasks concurrently

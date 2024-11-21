@@ -24,7 +24,9 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
         raise FileNotFoundError(f"Latents directory not found: {latents_dir}")
     
     module = f".gpt_neox.layers.{layer}"
-    feature_dict = {module: torch.arange(0,100)}
+    #select 30 random features
+    # feature_dict = {module: torch.arange(0,100)}
+    feature_dict = {module: torch.randperm(config.feature_width)[:100].sort().values}
     
     cache_config_dir = f"{latents_dir}/{module}/config.json"
     with open(cache_config_dir, "r") as f:
@@ -34,7 +36,8 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     
     with open(cache_config_dir, "w") as f:
         json.dump(cache_config, f)
-            
+    
+    print(f"Loading latents from {latents_dir}")
     dataset = FeatureDataset(
         raw_dir=latents_dir,
         cfg=feature_cfg,
@@ -42,6 +45,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
         features=feature_dict,
     )
 
+    print(f"Creating constructor and sampler for layer {layer}")
     constructor = partial(
         default_constructor, 
         tokens=dataset.tokens,
@@ -54,7 +58,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     loader = FeatureLoader(dataset, constructor=constructor, sampler=sampler)
     
     # Save detailed results in model directory
-    save_path = model_dir / f"max_activations_layer_{layer}.txt"
+    save_path = latents_dir / f"max/max_activations_layer_{layer}.txt"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Create a list to store feature info
@@ -62,6 +66,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     
     with open(save_path, "w") as f:
         for feature in loader:
+            print(f"Processing feature {str(feature.feature)}")
             # Extract feature number from format "layer_featureN"
             feature_str = str(feature.feature)
             feature_num = int(feature_str.split('feature')[-1])
@@ -84,10 +89,10 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     
     # Sort features by max activation and save top N
     feature_info.sort(key=lambda x: x["max_activation"], reverse=True)
-    top_features = feature_info[:config.num_latents_to_explain]
+    top_features = feature_info[:config.n_random]
     
     # Save selected features
-    features_save_path = model_dir / "selected_features.json"
+    features_save_path = latents_dir / "max/selected_features.json"
     
     # Load existing or create new features dict
     if features_save_path.exists():
@@ -97,7 +102,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
         all_features = {}
     
     all_features[f"layer_{layer}"] = [f["feature"] for f in top_features]
-    
+    print(features_save_path)
     with open(features_save_path, "w") as f:
         json.dump(all_features, f, indent=2)
 
@@ -126,6 +131,29 @@ def main():
         torch_dtype=config.torch_dtype
     )
     
+    if config.reinit_non_embedding:
+        print("Loading step0 model for reinitialization...")
+        model_step0 = LanguageModel(
+            config.model_name,
+            device_map=config.device_map,
+            dispatch=True,
+            torch_dtype=getattr(torch, config.torch_dtype),
+            revision="step0"
+        )
+        
+        for name, param in model.named_parameters():
+            # if nans print(name)
+            if param.isnan().any():
+                print(f"NaNs found in {name}")
+                
+        for name, param in model_step0.named_parameters():
+            if "embed" in name:
+                print(f"Replacing embedding: {name}")
+                param.data = model.state_dict()[name].data
+        
+        del model
+        model = model_step0
+    
     # Set up configurations
     feature_cfg = FeatureConfig(
         width=config.feature_width,
@@ -136,12 +164,8 @@ def main():
     
     experiment_cfg = ExperimentConfig(
         n_examples_train=config.n_examples_train,
-        n_examples_test=config.n_examples_test,
-        n_quantiles=config.n_quantiles,
         example_ctx_len=config.example_ctx_len,
-        n_random=config.n_random,
         train_type=config.train_type,
-        test_type=config.test_type,
     )
 
     # Process each layer

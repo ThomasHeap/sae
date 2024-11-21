@@ -28,15 +28,15 @@ else:
                            trust_remote_code=True,
                            cache_dir=config.cache_dir)
     
-    #save half of dataset as train, half as test
-    dataset = dataset.train_test_split(test_size=0.5, seed=config.random_seed)
-    train_dataset = dataset['train']
-    test_dataset = dataset['test']
-    
+    # #save half of dataset as train, half as test
+    # dataset = dataset.train_test_split(test_size=0.5, seed=config.random_seed)
+    # train_dataset = dataset['train']
+    # test_dataset = dataset['test']
+    train_dataset = dataset
     
     print("Tokenizing dataset...")
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-    tokenized = chunk_and_tokenize(train_dataset, tokenizer, text_key='raw_content')
+    tokenized = chunk_and_tokenize(train_dataset, tokenizer, text_key=config.text_key)
     
     tokenized.save_to_disk(str(config.tokenized_dataset_path))
 
@@ -50,6 +50,10 @@ tokenized = tokenized.select(range(min(len(tokenized), config.max_tokens // toke
 
 #print number of tokens in dataset
 print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0].shape[0]}")
+
+
+#shuffle dataset
+# tokenized = tokenized.shuffle(seed=config.random_seed)
 
 
 gpt = AutoModelForCausalLM.from_pretrained(
@@ -86,7 +90,12 @@ save_path = save_dir / 'config.json'
 save_config(config, save_path)
 
 cfg = TrainConfig(
-    SaeConfig(gpt.config.hidden_size), 
+    SaeConfig(gpt.config.hidden_size),
+        # # expansion_factor=config.expansion_factor,
+        # # normalize_decoder=config.normalize_decoder,
+        # num_latents=gpt.config.hidden_size,
+        # k=config.k,
+        # multi_topk=config.multi_topk,), 
     batch_size=config.batch_size, 
     run_name=str(save_dir)
 )
