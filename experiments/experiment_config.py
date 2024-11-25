@@ -15,6 +15,10 @@ class Config:
     model_name = "EleutherAI/pythia-70m-deduped"
     use_step0 = False
     reinit_non_embedding = False
+    
+    # Random training settings
+    use_random_control = False  # Flag to toggle random control
+    noise_std = 1.0  # Standard deviation for random noise in random mode
 
     # Dataset settings
     dataset = "EleutherAI/rpj-v2-sample"  # Full path format
@@ -25,11 +29,11 @@ class Config:
 
     # Training settings
     batch_size = 4
-    expansion_factor=64
-    normalize_decoder=True,
-    num_latents=0
-    k=32
-    multi_topk=False
+    expansion_factor = 64
+    normalize_decoder = True
+    num_latents = 0
+    k = 32
+    multi_topk = False
     
     # Feature extraction settings
     feature_width = 32768
@@ -44,7 +48,7 @@ class Config:
     example_ctx_len = 32
     n_random = 30
     train_type = "top"
-    test_type = "top"
+    test_type = "quantiles"
 
     # Cache settings
     cache_batch_size = 8
@@ -72,7 +76,16 @@ class Config:
     @property
     def save_directory(self):
         """Get the save directory using the automatically generated run name"""
+        if self.use_random_mode:
+            return self.saved_models_dir / "random"
         return self.saved_models_dir / self.run_name
+    
+    @property
+    def latents_directory(self):
+        """Get the directory for saving latent features"""
+        if self.use_random_mode:
+            return self.saved_latents_dir / "random_noise"
+        return self.saved_latents_dir / f"latents_{self.run_name}"
     
     @property
     def dataset_short_name(self):
@@ -93,7 +106,6 @@ class Config:
     @property
     def run_name(self):
         """Automatically generate run name based on settings"""
-        
         if self.reinit_non_embedding:
             init_strategy = "non_embedding_random"
         elif self.use_step0:

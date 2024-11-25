@@ -102,10 +102,10 @@ def process_model(noise_std=1.0):
 
     cfg = CacheConfig(
         dataset_repo="EleutherAI/rpj-v2-sample",
-        dataset_split="train[:1%]",
+        dataset_split="train[5%:7%]",
         batch_size=8    ,
         ctx_len=256,
-        n_tokens=1_000_000,
+        n_tokens=10_000_000,
         n_splits=5,
     )  
     

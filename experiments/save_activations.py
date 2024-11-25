@@ -2,25 +2,23 @@ from nnsight import LanguageModel
 from sae_auto_interp.autoencoders import load_eai_autoencoders
 from sae_auto_interp.config import CacheConfig
 from sae_auto_interp.features import FeatureCache
-#from data import load_tokenized_data
 from sae_auto_interp.utils import load_tokenized_data
+from noise_embedding import NoiseEmbeddingNNsight
 import os
 import torch
 from pathlib import Path
 from experiment_config import config
 from config_loader import parse_config_overrides, apply_overrides
 
-
-
 def process_model():
     """Process model activations based on configuration"""
-    # Get model directory from config
-    model_dir = config.save_directory
-    print(f"\nProcessing model in {model_dir}")
+    save_dir = config.save_directory
+    print(f"\nProcessing model in {save_dir}")
     print(f"Reinitialization mode: {'reinit' if config.reinit_non_embedding else 'no-reinit'}")
+    print(f"Random control mode: {'enabled' if config.use_random_control else 'disabled'}")
     
-    if not model_dir.exists():
-        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+    if not save_dir.exists():
+        raise FileNotFoundError(f"Model directory not found: {save_dir}")
     
     print(f"Using model: {config.model_name}")
     print(f"Using dataset: {config.dataset}")
@@ -48,7 +46,6 @@ def process_model():
         )
         
         for name, param in model.named_parameters():
-            # if nans print(name)
             if param.isnan().any():
                 print(f"NaNs found in {name}")
                 
@@ -60,33 +57,24 @@ def process_model():
         del model
         model = model_step0
 
+    if config.use_random_control:
+        print(f"Applying random control with noise std: {config.noise_std}")
+        model = NoiseEmbeddingNNsight(model, std=config.noise_std)
+
     print("Loading autoencoders...")
-    submodule_dict, model = load_eai_autoencoders(
-        model,
-        list(range(5)),  # Match the number of layers we process
-        weight_dir=str(model_dir),
+    submodule_dict, model.model = load_eai_autoencoders(
+        model.model if config.use_random_control else model,
+        list(range(5)),
+        weight_dir=str(save_dir),
         module="res"
     )
 
-    print(submodule_dict)
-
-    # cfg = CacheConfig(
-    #     dataset_repo=config.dataset,
-    #     dataset_name=config.dataset_name,
-    #     dataset_split=config.dataset_split,
-    #     batch_size=config.cache_batch_size,
-    #     ctx_len=config.cache_ctx_len,
-    #     n_tokens=config.cache_n_tokens,
-    #     n_splits=5,
-    # )    
-    # 00_000,
-    
     cfg = CacheConfig(
         dataset_repo="EleutherAI/rpj-v2-sample",
-        dataset_split="train[:1%]",
-        batch_size=8    ,
-        ctx_len=256,
-        n_tokens=1_000_000,
+        dataset_split="train[5%:7%]",
+        batch_size=config.cache_batch_size,
+        ctx_len=config.cache_ctx_len,
+        n_tokens=config.cache_n_tokens,
         n_splits=5,
     )  
     
@@ -96,7 +84,6 @@ def process_model():
         dataset_repo=cfg.dataset_repo,
         dataset_split=cfg.dataset_split,
     )
-        
 
     cache = FeatureCache(
         model,
@@ -107,9 +94,8 @@ def process_model():
     print("Processing tokens...")
     cache.run(cfg.n_tokens, tokens)
     
-            
     # Save cache data
-    save_dir = config.saved_latents_dir / f"latents_{model_dir.name}"
+    save_dir = config.latents_directory
     print(f"Saving results to {save_dir}")
     
     cache.save_splits(
@@ -117,27 +103,29 @@ def process_model():
         save_dir=save_dir
     )
 
+    # Save config with noise parameter if using random control
+    cfg_dict = cfg.to_dict()
+    if config.use_random_control:
+        cfg_dict['noise_std'] = config.noise_std
+        cfg_dict['embedding_type'] = 'pure_gaussian_noise'
+    
     cache.save_config(
         save_dir=save_dir,
         cfg=cfg,
         model_name=config.model_name
     )
 
-    # print("\nSaved features per layer:")
-    # for module, ae in submodule_dict.items():
-    #     print(f"{module}: {ae.width} features")
+    if config.use_random_control:
+        model.remove_hook()
 
 def main():
     # Load and apply configuration overrides
     overrides = parse_config_overrides()
-    # Set reinit_non_embedding based on the flag
     if "--no-reinit_non_embedding" in os.sys.argv:
         overrides["reinit_non_embedding"] = False
     apply_overrides(config, overrides)
     
     os.environ['HF_HOME'] = str(config.cache_dir)
-    
-    # Process the model
     process_model()
 
 if __name__ == "__main__":

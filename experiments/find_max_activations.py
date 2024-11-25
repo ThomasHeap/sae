@@ -7,26 +7,29 @@ from sae_auto_interp.features.constructors import default_constructor
 from sae_auto_interp.features.samplers import sample
 from experiment_config import config
 from config_loader import parse_config_overrides, apply_overrides
+from noise_embedding import NoiseEmbeddingNNsight
 import os
 from pathlib import Path
 import json
+
+#seed torch random
+torch.manual_seed(42)
 
 def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig, 
                  experiment_cfg: ExperimentConfig):
     """Process a single layer and save top feature selections"""
     print(f"Processing layer {layer}")
     
-    # Get model directory and corresponding latents directory
-    model_dir = config.save_directory
-    latents_dir = config.saved_latents_dir / f"latents_{model_dir.name}"
+    # Get latents directory from config
+    latents_dir = config.latents_directory
     
     if not latents_dir.exists():
         raise FileNotFoundError(f"Latents directory not found: {latents_dir}")
     
     module = f".gpt_neox.layers.{layer}"
-    #select 30 random features
-    # feature_dict = {module: torch.arange(0,100)}
-    feature_dict = {module: torch.randperm(config.feature_width)[:100].sort().values}
+    #select random features
+    feature_dict = {module: torch.randperm(config.feature_width)[:300]}
+    print(f"Selected features: {feature_dict}")
     
     cache_config_dir = f"{latents_dir}/{module}/config.json"
     with open(cache_config_dir, "r") as f:
@@ -57,17 +60,20 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     sampler = partial(sample, cfg=experiment_cfg)
     loader = FeatureLoader(dataset, constructor=constructor, sampler=sampler)
     
-    # Save detailed results in model directory
+    # Save detailed results
     save_path = latents_dir / f"max/max_activations_layer_{layer}.txt"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Create a list to store feature info
     feature_info = []
-    
+    features_seen = 0
+
     with open(save_path, "w") as f:
         for feature in loader:
+            if features_seen >= config.n_random:
+                break
+            
             print(f"Processing feature {str(feature.feature)}")
-            # Extract feature number from format "layer_featureN"
             feature_str = str(feature.feature)
             feature_num = int(feature_str.split('feature')[-1])
             max_activation = float(feature.max_activation)
@@ -86,7 +92,10 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
                 f.write('-' * 100 + '\n')
             f.write(f"Max activation: {max_activation}\n")
             f.write("=" * 100 + '\n')
+            
+            features_seen += 1
     
+    print(f"Saved {features_seen} features to {save_path}")
     # Sort features by max activation and save top N
     feature_info.sort(key=lambda x: x["max_activation"], reverse=True)
     top_features = feature_info[:config.n_random]
@@ -109,7 +118,6 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
 def main():
     # Load and apply configuration overrides
     overrides = parse_config_overrides()
-    # Set reinit_non_embedding based on the flag
     if "--no-reinit_non_embedding" in os.sys.argv:
         overrides["reinit_non_embedding"] = False
     apply_overrides(config, overrides)
@@ -117,6 +125,7 @@ def main():
     os.environ['HF_HOME'] = str(config.cache_dir)
     
     print(f"Processing model in {config.save_directory}")
+    print(f"Random control mode: {'enabled' if config.use_random_control else 'disabled'}")
     print(f"Reinitialization mode: {'reinit' if config.reinit_non_embedding else 'no-reinit'}")
     print(f"Using model: {config.model_name}")
     print(f"Using dataset: {config.dataset}")
@@ -142,7 +151,6 @@ def main():
         )
         
         for name, param in model.named_parameters():
-            # if nans print(name)
             if param.isnan().any():
                 print(f"NaNs found in {name}")
                 
@@ -154,6 +162,10 @@ def main():
         del model
         model = model_step0
     
+    if config.use_random_control:
+        print(f"Applying random control with noise std: {config.noise_std}")
+        model = NoiseEmbeddingNNsight(model, std=config.noise_std)
+    
     # Set up configurations
     feature_cfg = FeatureConfig(
         width=config.feature_width,
@@ -163,7 +175,7 @@ def main():
     )
     
     experiment_cfg = ExperimentConfig(
-        n_examples_train=config.n_examples_train,
+        n_examples_train=200,
         example_ctx_len=config.example_ctx_len,
         train_type=config.train_type,
     )

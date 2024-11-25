@@ -5,17 +5,22 @@ import matplotlib.pyplot as plt
 import argparse
 from typing import Dict, List, Tuple
 from collections import defaultdict
+import random
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Plot model comparisons with random noise baseline')
+    parser = argparse.ArgumentParser(description='Plot model comparisons with multiple metrics')
     parser.add_argument('--dataset', type=str, required=True, 
                       help='Dataset name (e.g., wikitext_wikitext-103-raw-v1 or redpajama-data-1t-sample)')
     parser.add_argument('--base-dir', type=str, default='saved_latents',
                       help='Base directory containing model results')
+    parser.add_argument('--n-features', type=int, default=30,
+                      help='Number of features to sample per layer')
     parser.add_argument('--y-min', type=float, default=None,
                       help='Minimum value for y-axis')
     parser.add_argument('--y-max', type=float, default=None,
                       help='Maximum value for y-axis')
+    parser.add_argument('--seed', type=int, default=42,
+                      help='Random seed for feature sampling')
     return parser.parse_args()
 
 def extract_model_info(model_dir: str) -> Tuple[str, str]:
@@ -33,95 +38,146 @@ def extract_model_info(model_dir: str) -> Tuple[str, str]:
         init = 'trained'
     return size, init
 
-def calculate_metrics(data: List[Dict]) -> Tuple[float, float]:
-    """Calculate balanced accuracy and right fraction from prediction data"""
+def calculate_metrics(data: List[Dict]) -> Dict[str, float]:
+    """Calculate various metrics from prediction data"""
     if not data:
-        return 0.0, 0.0
+        return {metric: 0.0 for metric in ['balanced_acc', 'accuracy', 'sensitivity', 
+                                         'specificity', 'precision', 'f1_score']}
     
-    # Calculate overall accuracy
-    right_predictions = sum(1 for item in data if item['correct'])
-    right_fraction = right_predictions / len(data)
-    
-    # Calculate balanced accuracy
+    # Calculate basic counts
     true_positives = sum(1 for item in data if item['ground_truth'] and item['prediction'] == 1)
     true_negatives = sum(1 for item in data if not item['ground_truth'] and item['prediction'] == 0)
+    false_positives = sum(1 for item in data if not item['ground_truth'] and item['prediction'] == 1)
+    false_negatives = sum(1 for item in data if item['ground_truth'] and item['prediction'] == 0)
+    
     total_positives = sum(1 for item in data if item['ground_truth'])
     total_negatives = sum(1 for item in data if not item['ground_truth'])
     
-    if total_positives == 0 or total_negatives == 0:
-        balanced_acc = right_fraction
-    else:
-        sensitivity = true_positives / total_positives
-        specificity = true_negatives / total_negatives
-        balanced_acc = (sensitivity + specificity) / 2
+    # Calculate metrics
+    sensitivity = true_positives / total_positives if total_positives > 0 else 0
+    specificity = true_negatives / total_negatives if total_negatives > 0 else 0
+    accuracy = (true_positives + true_negatives) / len(data)
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
     
-    return balanced_acc, right_fraction
-
-def get_feature_count(results_dir: Path) -> int:
-    """Get the feature count from any layer (should be consistent across layers)"""
-    explanation_dir = results_dir / "explanations"
-    if not explanation_dir.exists():
-        return 0
-        
-    layer_dirs = list(explanation_dir.glob('layer_*'))
-    if not layer_dirs:
-        return 0
-        
-    # Take first layer's feature count as they should all be the same
-    feature_files = list(layer_dirs[0].glob('feature_*.txt'))
-    return len(feature_files)
-
-def load_model_results(model_dir: Path) -> Dict[str, Dict]:
-    """Load and process results for a single model directory"""
-    results = {
-        'balanced_acc': [], 'balanced_acc_std': [],
-        'right_frac': [], 'right_frac_std': [],
-        'layers': [], 'feature_count': None
+    # Calculate F1 score
+    f1_score = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+    
+    # Calculate balanced accuracy
+    balanced_acc = (sensitivity + specificity) / 2
+    
+    return {
+        'balanced_acc': balanced_acc,
+        'accuracy': accuracy,
+        'sensitivity': sensitivity,
+        'specificity': specificity,
+        'precision': precision,
+        'f1_score': f1_score
     }
+
+def get_available_features(layer_dir: Path, layer_num: int) -> List[int]:
+    """Get list of all available feature numbers in a layer directory"""
+    # Construct the module path pattern
+    module_pattern = f".gpt_neox.layers.{layer_num}"
+    
+    # Look for files matching the pattern
+    feature_files = list(layer_dir.glob(f"{module_pattern}_feature*_score.txt"))
+    feature_numbers = []
+    
+    for file in feature_files:
+        try:
+            # Extract feature number from filename (.gpt_neox.layers.X_featureY_score.txt)
+            feature_part = file.stem.split('_')[-2]  # Get 'featureX' part
+            feature_num = int(feature_part.replace('feature', ''))
+            feature_numbers.append(feature_num)
+        except (IndexError, ValueError) as e:
+            print(f"Error parsing feature number from {file}: {e}")
+            continue
+    
+    return feature_numbers
+
+def sample_features(layer_dir: Path, layer_num: int, n_features: int, seed: int = None) -> List[int]:
+    """Randomly sample n_features from available features"""
+    available_features = get_available_features(layer_dir, layer_num)
+    if not available_features:
+        print(f"No features found in {layer_dir} for layer {layer_num}")
+        return []
+        
+    if seed is not None:
+        random.seed(seed)
+    
+    # Sample features or take all if fewer than requested
+    if len(available_features) <= n_features:
+        print(f"Found {len(available_features)} features for layer {layer_num}, using all")
+        return available_features
+    
+    print(f"Sampling {n_features} features from {len(available_features)} available for layer {layer_num}")
+    return random.sample(available_features, n_features)
+
+def load_model_results(model_dir: Path, n_features: int, seed: int = None) -> Dict[str, Dict]:
+    """Load and process results for a single model directory with random feature sampling"""
+    metrics = ['balanced_acc', 'accuracy', 'sensitivity', 'specificity', 'precision', 'f1_score']
+    results = {
+        metric: {'values': [], 'std': []} for metric in metrics
+    }
+    results.update({'layers': [], 'feature_count': None, 'sampled_features': defaultdict(list)})
     
     explanations_dir = model_dir / "explanations"
     if not explanations_dir.exists():
         print(f"No explanations directory found in {model_dir}")
         return None
     
-    # Get feature count once from any layer
-    results['feature_count'] = get_feature_count(model_dir)
-    
-    # Get all layer directories
     layer_dirs = sorted(explanations_dir.glob('layer_*'), 
                        key=lambda x: int(x.name.split('_')[1]))
     
     for layer_dir in layer_dirs:
         layer_num = int(layer_dir.name.split('_')[1])
         
-        # Find all feature results files
-        feature_files = layer_dir.glob('*.txt')
-        feature_files = [f for f in feature_files if "score" in f.name]
+        # Sample features for this layer
+        sampled_features = sample_features(layer_dir, layer_num, n_features, seed)
+        if not sampled_features:
+            continue
+            
+        results['sampled_features'][layer_num] = sampled_features
         
-        layer_balanced_accs = []
-        layer_right_fracs = []
+        layer_metrics = defaultdict(list)
         
-        for feature_file in feature_files:
+        # Process only sampled features
+        for feature_num in sampled_features:
+            # Construct the correct score file path
+            module_pattern = f".gpt_neox.layers.{layer_num}"
+            score_file = layer_dir / f"{module_pattern}_feature{feature_num}_score.txt"
+            
+            if not score_file.exists():
+                print(f"Score file not found: {score_file}")
+                continue
+                
             try:
-                with open(feature_file) as f:
+                with open(score_file) as f:
                     data = json.load(f)
-                    balanced_acc, right_frac = calculate_metrics(data)
-                    layer_balanced_accs.append(balanced_acc)
-                    layer_right_fracs.append(right_frac)
+                    feature_metrics = calculate_metrics(data)
+                    for metric, value in feature_metrics.items():
+                        layer_metrics[metric].append(value)
             except (json.JSONDecodeError, KeyError) as e:
-                print(f"Error reading {feature_file}: {e}")
+                print(f"Error reading {score_file}: {e}")
                 continue
         
-        if layer_balanced_accs and layer_right_fracs:
+        if layer_metrics:
             results['layers'].append(layer_num)
-            results['balanced_acc'].append(np.mean(layer_balanced_accs))
-            results['balanced_acc_std'].append(np.std(layer_balanced_accs))
-            results['right_frac'].append(np.mean(layer_right_fracs))
-            results['right_frac_std'].append(np.std(layer_right_fracs))
+            for metric in metrics:
+                metric_values = layer_metrics[metric]
+                if metric_values:  # Only compute if we have values
+                    results[metric]['values'].append(np.mean(metric_values))
+                    results[metric]['std'].append(np.std(metric_values))
+                else:
+                    print(f"No valid values for {metric} in layer {layer_num}")
+    
+    # Store the actual number of features sampled
+    results['feature_count'] = n_features
     
     return results if results['layers'] else None
 
-def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = None, y_max: float = None):
+def plot_dataset_comparisons(base_dir: Path, dataset_name: str, n_features: int, 
+                           y_min: float = None, y_max: float = None, seed: int = None):
     """Create comparison plots for models of a specific dataset"""
     model_dirs = [d for d in base_dir.iterdir() 
                  if d.is_dir() and (d.name.startswith("latents_" + dataset_name) or d.name == "random_noise")]
@@ -130,24 +186,31 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
         print(f"No models found for dataset {dataset_name}")
         return
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+    # Create a 3x2 subplot grid
+    fig, axes = plt.subplots(3, 2, figsize=(15, 18))
+    axes = axes.flatten()
+    
+    # Define metrics to plot and their labels
+    metrics_to_plot = [
+        ('balanced_acc', 'Balanced Accuracy'),
+        ('accuracy', 'Accuracy'),
+        ('sensitivity', 'Sensitivity (Recall)'),
+        ('specificity', 'Specificity'),
+        ('precision', 'Precision'),
+        ('f1_score', 'F1 Score')
+    ]
     
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
     markers = ['o', 's', '^', 'D', 'v']
     
     valid_layers = [0, 1, 2, 3, 4]
-    feature_count = None
     
     for i, model_dir in enumerate(model_dirs):
         print(f"\nProcessing model: {model_dir.name}")
-        results = load_model_results(model_dir)
+        results = load_model_results(model_dir, n_features, seed)
         if not results:
             print(f"No valid results found for {model_dir.name}")
             continue
-            
-        # Store feature count (should be the same for all models)
-        if feature_count is None:
-            feature_count = results['feature_count']
             
         size, init = extract_model_info(model_dir.name)
         label = f"{size} {init}"
@@ -156,41 +219,29 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
         color = colors[i % len(colors)]
         marker = markers[i % len(markers)]
         
-        # Convert to numpy arrays for easier manipulation
         layers = np.array(results['layers'])
         
-        # Plot balanced accuracy with error bars
-        balanced_acc = np.array(results['balanced_acc'])
-        balanced_acc_std = np.array(results['balanced_acc_std'])
-        ax1.plot(layers, balanced_acc, color=color, marker=marker, 
-                label=label, linestyle='-', markersize=8, linewidth=2)
-        ax1.fill_between(layers, 
-                        balanced_acc - balanced_acc_std,
-                        balanced_acc + balanced_acc_std,
-                        color=color, alpha=0.2)
-        
-        # Plot right fraction with error bars
-        right_frac = np.array(results['right_frac'])
-        right_frac_std = np.array(results['right_frac_std'])
-        ax2.plot(layers, right_frac, color=color, marker=marker,
-                label=label, linestyle='-', markersize=8, linewidth=2)
-        ax2.fill_between(layers,
-                        right_frac - right_frac_std,
-                        right_frac + right_frac_std,
-                        color=color, alpha=0.2)
-        
-        print(f"Balanced accuracy: {balanced_acc}")
-        print(f"Right fraction: {right_frac}")
+        # Plot each metric
+        for (metric, metric_label), ax in zip(metrics_to_plot, axes):
+            if metric in results and 'values' in results[metric] and results[metric]['values']:
+                values = np.array(results[metric]['values'])
+                std_dev = np.array(results[metric]['std'])
+                
+                ax.plot(layers, values, color=color, marker=marker,
+                       label=label, linestyle='-', markersize=8, linewidth=2)
+                ax.fill_between(layers,
+                              values - std_dev,
+                              values + std_dev,
+                              color=color, alpha=0.2)
+            else:
+                print(f"No data for metric {metric} in model {model_dir.name}")
     
-    # Add feature count to titles
-    feature_count_str = f"\n{feature_count} features per layer" if feature_count else ""
-    
-    # Configure plots
-    for ax, title, ylabel in [(ax1, 'Balanced Accuracy', 'Balanced Accuracy'),
-                             (ax2, 'Right Predictions', 'Fraction of Right Predictions')]:
+    # Configure each subplot
+    feature_str = f"\n{n_features} features per layer"
+    for ax, (metric, metric_label) in zip(axes, metrics_to_plot):
         ax.set_xlabel('Layer', fontsize=12)
-        ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(f'{dataset_name}\n{title}{feature_count_str}', 
+        ax.set_ylabel(metric_label, fontsize=12)
+        ax.set_title(f'{dataset_name}\n{metric_label}{feature_str}',
                     fontsize=14, pad=20)
         ax.grid(True, linestyle='--', alpha=0.7)
         ax.legend(frameon=True, fontsize=10, loc='center left', bbox_to_anchor=(1, 0.5))
@@ -198,10 +249,8 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
         ax.set_facecolor('#f8f8f8')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        
-        # Set x-axis to show only valid layers
         ax.set_xticks(valid_layers)
-        ax.set_xlim(-0.2, 4.2)  # Add small padding on both sides
+        ax.set_xlim(-0.2, 4.2)
         
         if y_min is not None:
             ax.set_ylim(bottom=y_min)
@@ -210,14 +259,31 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, y_min: float = N
     
     plt.tight_layout()
     
-    # Save plots in the random_noise/explanations directory
+    # Save plots
     plots_dir = base_dir / "comparison_plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    save_path = plots_dir / f"{dataset_name}_model_comparisons.pdf"
+    save_path = plots_dir / f"{dataset_name}_model_comparisons_{n_features}features.pdf"
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.close()
+    plt.savefig(plots_dir / f"{dataset_name}_model_comparisons_{n_features}features.png", 
+                dpi=300, bbox_inches='tight', facecolor='white')
     
-    print(f"\nPlot saved as {save_path}")
+    # Save sampled feature information
+    info_path = plots_dir / f"{dataset_name}_sampled_features_{n_features}.json"
+    sampled_features_info = {}
+    for model_dir in model_dirs:
+        results = load_model_results(model_dir, n_features, seed)
+        if results and 'sampled_features' in results:
+            sampled_features_info[model_dir.name] = {
+                str(layer): features 
+                for layer, features in results['sampled_features'].items()
+            }
+    
+    with open(info_path, 'w') as f:
+        json.dump(sampled_features_info, f, indent=2)
+    
+    plt.close()
+    print(f"\nPlots saved as {save_path}")
+    print(f"Sampled features information saved as {info_path}")
 
 def main():
     args = parse_args()
@@ -225,8 +291,10 @@ def main():
     
     print(f"Processing dataset: {args.dataset}")
     print(f"Looking for models in: {base_dir}")
+    print(f"Sampling {args.n_features} features per layer")
     
-    plot_dataset_comparisons(base_dir, args.dataset, args.y_min, args.y_max)
+    plot_dataset_comparisons(base_dir, args.dataset, args.n_features, 
+                           args.y_min, args.y_max, args.seed)
 
 if __name__ == "__main__":
     main()
