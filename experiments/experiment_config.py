@@ -46,8 +46,8 @@ class Config:
     n_examples_test = 100
     n_quantiles = 10
     example_ctx_len = 32
-    n_random = 30
-    train_type = "top"
+    n_random = 50
+    train_type = "random"
     test_type = "quantiles"
 
     # Cache settings
@@ -60,6 +60,7 @@ class Config:
 
     # Explanation generator settings
     num_parallel_latents = 5
+    offline_explainer = False
     
     random_seed = 42
 
@@ -76,14 +77,14 @@ class Config:
     @property
     def save_directory(self):
         """Get the save directory using the automatically generated run name"""
-        if self.use_random_mode:
+        if self.use_random_control:
             return self.saved_models_dir / "random"
         return self.saved_models_dir / self.run_name
     
     @property
     def latents_directory(self):
         """Get the directory for saving latent features"""
-        if self.use_random_mode:
+        if self.use_random_control:
             return self.saved_latents_dir / "random_noise"
         return self.saved_latents_dir / f"latents_{self.run_name}"
     
@@ -96,6 +97,11 @@ class Config:
         if self.dataset_name:
             base_name = f"{base_name}_{self.dataset_name}"
         return base_name
+
+    @property
+    def model_short_name(self):
+        """Get the model name without organization prefix"""
+        return self.model_name.split('/')[-1].lower()
 
     @property
     def tokenized_dataset_path(self):
@@ -114,7 +120,7 @@ class Config:
             init_strategy = "trained"
         
         token_count = self.max_tokens // 1_000_000
-        return f"{self.dataset_short_name}_{token_count}M_{init_strategy}"
+        return f"{self.model_short_name}/{self.dataset_short_name}_{token_count}M_{init_strategy}"
 
     def get_dataset_args(self):
         """Get the correct arguments for loading the dataset"""

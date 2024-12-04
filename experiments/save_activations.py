@@ -70,8 +70,8 @@ def process_model():
     )
 
     cfg = CacheConfig(
-        dataset_repo="EleutherAI/rpj-v2-sample",
-        dataset_split="train[5%:7%]",
+        dataset_repo=config.dataset,
+        dataset_split=config.dataset_split,
         batch_size=config.cache_batch_size,
         ctx_len=config.cache_ctx_len,
         n_tokens=config.cache_n_tokens,
