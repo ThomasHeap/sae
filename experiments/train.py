@@ -23,18 +23,16 @@ else:
     print(f"Loading dataset {config.dataset}")
     dataset_args = config.get_dataset_args()
     print(f"Dataset args: {dataset_args}")
+    
+    print(dataset_args)
     dataset = load_dataset(**dataset_args,
                           trust_remote_code=True,
                           cache_dir=config.cache_dir)
     
-    #save half of dataset as train, half as test
-    dataset = dataset.train_test_split(test_size=0.5, seed=config.random_seed)
-    train_dataset = dataset['train']
-    test_dataset = dataset['test']
     
     print("Tokenizing dataset...")
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-    tokenized = chunk_and_tokenize(train_dataset, tokenizer, text_key=config.text_key)
+    tokenized = chunk_and_tokenize(dataset, tokenizer, text_key=config.text_key)
     
     tokenized.save_to_disk(str(config.tokenized_dataset_path))
 
@@ -48,6 +46,9 @@ tokenized = tokenized.select(range(min(len(tokenized), config.max_tokens // toke
 #print number of tokens in dataset
 print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0].shape[0]}")
 
+#if fewer than 1 billion warn user
+if len(tokenized) * tokenized['input_ids'][0].shape[0] < config.max_tokens:
+    print("Warning: Less than 1 billion tokens in dataset")
 #shuffle dataset
 tokenized = tokenized.shuffle(seed=config.random_seed)
 

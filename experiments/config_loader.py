@@ -67,6 +67,7 @@ def parse_config_overrides() -> Dict[str, Any]:
     parser.add_argument('--model_name', type=str, help='Model name/path')
     parser.add_argument('--dataset', type=str, help='Dataset path')
     parser.add_argument('--dataset_name', type=str, help='Dataset configuration name')
+    parser.add_argument('--dataset_split', type=str, help='Dataset split name')
     parser.add_argument('--max_tokens', type=int, help='Maximum tokens to process')
     parser.add_argument('--batch_size', type=int, help='Training batch size')
     parser.add_argument('--model_dirs', nargs='*', help='Specific model directories to process')

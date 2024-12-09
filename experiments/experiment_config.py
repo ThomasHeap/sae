@@ -36,7 +36,6 @@ class Config:
     multi_topk = False
     
     # Feature extraction settings
-    feature_width = 32768
     min_examples = 200
     max_examples = 10000
     n_splits = 5
@@ -120,7 +119,7 @@ class Config:
             init_strategy = "trained"
         
         token_count = self.max_tokens // 1_000_000
-        return f"{self.model_short_name}/{self.dataset_short_name}_{token_count}M_{init_strategy}"
+        return f"{self.model_short_name}_{self.expansion_factor}_k{self.k}/{self.dataset_short_name}_{token_count}M_{init_strategy}"
 
     def get_dataset_args(self):
         """Get the correct arguments for loading the dataset"""

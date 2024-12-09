@@ -247,9 +247,13 @@ async def main():
     if not latents_dir.exists():
         raise FileNotFoundError(f"Latents directory not found: {latents_dir}")
     
+    #load feature width from text file
+    with open(latents_dir / "feature_width.txt", "r") as f:
+        feature_width = int(f.read())
+        
     # Set up configurations
     feature_cfg = FeatureConfig(
-        width=config.feature_width,
+        width=feature_width,
         min_examples=config.min_examples,
         max_examples=config.max_examples,
         n_splits=config.n_splits

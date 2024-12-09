@@ -20,6 +20,8 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     """Process a single layer and save top feature selections"""
     print(f"Processing layer {layer}")
     
+    
+        
     # Get latents directory from config
     latents_dir = config.latents_directory
     
@@ -28,7 +30,7 @@ def process_layer(layer: int, model: LanguageModel, feature_cfg: FeatureConfig,
     
     module = f".gpt_neox.layers.{layer}"
     #select random features
-    feature_dict = {module: torch.randperm(config.feature_width)[:300]}
+    feature_dict = {module: torch.randperm(feature_cfg.width)[:300]}
     print(f"Selected features: {feature_dict}")
     
     cache_config_dir = f"{latents_dir}/{module}/config.json"
@@ -132,6 +134,11 @@ def main():
     if config.dataset_name:
         print(f"Dataset config: {config.dataset_name}")
     
+    #get feature width from text file
+    feature_width_path = config.latents_directory / "feature_width.txt"
+    with open(feature_width_path, "r") as f:
+        feature_width = int(f.read())
+    
     # Initialize model
     model = LanguageModel(
         config.model_name,
@@ -168,7 +175,7 @@ def main():
     
     # Set up configurations
     feature_cfg = FeatureConfig(
-        width=config.feature_width,
+        width=feature_width,
         min_examples=config.min_examples,
         max_examples=config.max_examples,
         n_splits=config.n_splits
@@ -182,7 +189,8 @@ def main():
 
     # Process each layer
     for layer in range(5):
-        process_layer(layer, model, feature_cfg, experiment_cfg)
+        
+        process_layer(layer, model.model if config.use_random_control else model, feature_cfg, experiment_cfg)
 
 if __name__ == "__main__":
     main()

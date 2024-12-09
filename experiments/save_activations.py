@@ -62,13 +62,25 @@ def process_model():
         model = NoiseEmbeddingNNsight(model, std=config.noise_std)
 
     print("Loading autoencoders...")
-    submodule_dict, model.model = load_eai_autoencoders(
-        model.model if config.use_random_control else model,
-        list(range(5)),
-        weight_dir=str(save_dir),
-        module="res"
-    )
+    
+    if config.use_random_control:
+        submodule_dict, model.model = load_eai_autoencoders(
+            model.model,
+            list(range(len(model.model.gpt_neox.layers))),
+            weight_dir=str(save_dir),
+            module="res"
+        )
+    else:
+        submodule_dict, model = load_eai_autoencoders(
+            model,
+            list(range(len(model.gpt_neox.layers))),
+            weight_dir=str(save_dir),
+            module="res"
+        )
 
+
+
+      
     cfg = CacheConfig(
         dataset_repo=config.dataset,
         dataset_split=config.dataset_split,
@@ -91,6 +103,9 @@ def process_model():
         batch_size=cfg.batch_size
     )
 
+    cfg_dict = cfg.to_dict()
+    
+    print(cfg_dict)
     print("Processing tokens...")
     cache.run(cfg.n_tokens, tokens)
     
@@ -104,10 +119,15 @@ def process_model():
     )
 
     # Save config with noise parameter if using random control
-    cfg_dict = cfg.to_dict()
+    
     if config.use_random_control:
         cfg_dict['noise_std'] = config.noise_std
         cfg_dict['embedding_type'] = 'pure_gaussian_noise'
+    
+    #save feature width to text file
+    with open(save_dir / "feature_width.txt", "w") as f:
+        f.write(str(submodule_dict['.gpt_neox.layers.0'].ae.ae.encoder.out_features))
+    
     
     cache.save_config(
         save_dir=save_dir,
