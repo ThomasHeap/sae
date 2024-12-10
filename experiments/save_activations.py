@@ -35,27 +35,13 @@ def process_model():
         revision="step0" if config.use_step0 else None
     )
     
-    if config.reinit_non_embedding:
-        print("Loading step0 model for reinitialization...")
-        model_step0 = LanguageModel(
-            config.model_name,
-            device_map=config.device_map,
-            dispatch=True,
-            torch_dtype=getattr(torch, config.torch_dtype),
-            revision="step0"
-        )
-        
-        for name, param in model.named_parameters():
-            if param.isnan().any():
-                print(f"NaNs found in {name}")
-                
-        for name, param in model_step0.named_parameters():
-            if "embed" in name:
-                print(f"Replacing embedding: {name}")
-                param.data = model.state_dict()[name].data
-        
-        del model
-        model = model_step0
+    if config.rerandomize:
+        print(f"Rerandomizing model parameters (embeddings: {config.rerandomize_embeddings})")
+        model = RerandomizedModel(
+            model,
+            rerandomize_embeddings=config.rerandomize_embeddings,
+            seed=config.random_seed
+        ).model
 
     if config.use_random_control:
         print(f"Applying random control with noise std: {config.noise_std}")

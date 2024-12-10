@@ -147,31 +147,17 @@ def main():
         torch_dtype=config.torch_dtype
     )
     
-    if config.reinit_non_embedding:
-        print("Loading step0 model for reinitialization...")
-        model_step0 = LanguageModel(
-            config.model_name,
-            device_map=config.device_map,
-            dispatch=True,
-            torch_dtype=getattr(torch, config.torch_dtype),
-            revision="step0"
-        )
-        
-        for name, param in model.named_parameters():
-            if param.isnan().any():
-                print(f"NaNs found in {name}")
-                
-        for name, param in model_step0.named_parameters():
-            if "embed" in name:
-                print(f"Replacing embedding: {name}")
-                param.data = model.state_dict()[name].data
-        
-        del model
-        model = model_step0
+    if config.rerandomize:
+        print(f"Rerandomizing model parameters (embeddings: {config.rerandomize_embeddings})")
+        model = RerandomizedModel(
+            model,
+            rerandomize_embeddings=config.rerandomize_embeddings,
+            seed=config.random_seed
+        ).model
     
     if config.use_random_control:
         print(f"Applying random control with noise std: {config.noise_std}")
-        model = NoiseEmbeddingNNsight(model, std=config.noise_std)
+        model = NoiseEmbeddingNNsight(model, std=config.noise_std).model
     
     # Set up configurations
     feature_cfg = FeatureConfig(
@@ -190,7 +176,7 @@ def main():
     # Process each layer
     for layer in range(5):
         
-        process_layer(layer, model.model if config.use_random_control else model, feature_cfg, experiment_cfg)
+        process_layer(layer, model, feature_cfg, experiment_cfg)
 
 if __name__ == "__main__":
     main()

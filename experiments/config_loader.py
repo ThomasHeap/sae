@@ -71,7 +71,10 @@ def parse_config_overrides() -> Dict[str, Any]:
     parser.add_argument('--max_tokens', type=int, help='Maximum tokens to process')
     parser.add_argument('--batch_size', type=int, help='Training batch size')
     parser.add_argument('--model_dirs', nargs='*', help='Specific model directories to process')
-    parser.add_argument('--reinit_non_embedding', action='store_true', help='Reinitialize non-embedding layers')
+    parser.add_argument('--rerandomize', action='store_true', 
+                       help='Rerandomize model parameters')
+    parser.add_argument('--rerandomize_embeddings', action='store_true',
+                       help='Include embeddings in rerandomization')
     parser.add_argument('--use_step0', action='store_true', help='Use step0 model')
     parser.add_argument('--use_random_control', action='store_true', help='Use random control')
     parser.add_argument('--text_key', type=str, help='Random seed')

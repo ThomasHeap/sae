@@ -14,7 +14,8 @@ class Config:
     # Model settings
     model_name = "EleutherAI/pythia-70m-deduped"
     use_step0 = False
-    reinit_non_embedding = False
+    rerandomize = False  # Whether to use rerandomization
+    rerandomize_embeddings = False  # Whether to rerandomize embeddings too
     
     # Random training settings
     use_random_control = False  # Flag to toggle random control
@@ -25,7 +26,7 @@ class Config:
     dataset_name = None  # Optional configuration name
     dataset_split = "train"
     text_key = "raw_content"
-    max_tokens = 1_000_000_000  # 1 billion tokens
+    max_tokens = 100_000_000  # 100 million tokens
 
     # Training settings
     batch_size = 4
@@ -114,8 +115,10 @@ class Config:
     @property
     def run_name(self):
         """Automatically generate run name based on settings"""
-        if self.reinit_non_embedding:
-            init_strategy = "non_embedding_random"
+        if self.rerandomize:
+            init_strategy = "rerandomised"
+            if self.rerandomize_embeddings:
+                init_strategy += "_embeddings"
         elif self.use_step0:
             init_strategy = "step0"
         else:

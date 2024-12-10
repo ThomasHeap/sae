@@ -9,6 +9,8 @@ from noise_embedding import NoiseEmbeddingModel
 import os
 
 from config_loader import parse_config_overrides, apply_overrides, save_config
+from rerandomized_model import 
+
 
 # Apply any command line overrides to the config
 overrides = parse_config_overrides()
@@ -40,7 +42,7 @@ else:
 print(tokenized['input_ids'][0].shape)
 print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0].shape[0]}")
 
-#restrict to 1 billion tokens
+#restrict to max_tokens
 tokenized = tokenized.select(range(min(len(tokenized), config.max_tokens // tokenized['input_ids'][0].shape[0])))
 
 #print number of tokens in dataset
@@ -48,7 +50,7 @@ print(f"Number of tokens in dataset: {len(tokenized) * tokenized['input_ids'][0]
 
 #if fewer than 1 billion warn user
 if len(tokenized) * tokenized['input_ids'][0].shape[0] < config.max_tokens:
-    print("Warning: Less than 1 billion tokens in dataset")
+    print(f"Warning: Less than {config.max_tokens} tokens in dataset")
 #shuffle dataset
 tokenized = tokenized.shuffle(seed=config.random_seed)
 
@@ -60,22 +62,13 @@ gpt = AutoModelForCausalLM.from_pretrained(
     revision="step0" if config.use_step0 else None
 )
 
-if config.reinit_non_embedding:
-    print("Loading step0 model for reinitialization...")
-    gpt_step0 = AutoModelForCausalLM.from_pretrained(
-        config.model_name,
-        device_map=config.device_map,
-        torch_dtype=getattr(torch, config.torch_dtype),
-        revision="step0"
-    )
-    
-    for name, param in gpt_step0.named_parameters():
-        if "embed" in name:
-            print(f"Replacing embedding: {name}")
-            param.data = gpt.state_dict()[name].data
-    
-    del gpt
-    gpt = gpt_step0
+if config.rerandomize:
+    print(f"Rerandomizing model parameters (embeddings: {config.rerandomize_embeddings})")
+    gpt = RerandomizedModel(
+        gpt,
+        rerandomize_embeddings=config.rerandomize_embeddings,
+        seed=config.random_seed
+    ).model
 
 # Wrap with noise embedding model if in random control mode
 if config.use_random_control:
@@ -91,18 +84,13 @@ print(f"Models will be saved in: {save_dir}")
 save_path = save_dir / 'config.json'
 save_config(config, save_path)
 
-# Configure SAE training
-if config.use_random_control:
-    # For random control, use simpler SAE config
-    sae_config = SaeConfig(gpt.config.hidden_size)
-else:
-    sae_config = SaeConfig(
-        expansion_factor=config.expansion_factor,
-        normalize_decoder=config.normalize_decoder,
-        num_latents=config.num_latents,
-        k=config.k,
-        multi_topk=config.multi_topk,
-    )
+sae_config = SaeConfig(
+    expansion_factor=config.expansion_factor,
+    normalize_decoder=config.normalize_decoder,
+    num_latents=config.num_latents,
+    k=config.k,
+    multi_topk=config.multi_topk,
+)
 
 cfg = TrainConfig(
     sae_config,
