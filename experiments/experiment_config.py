@@ -62,6 +62,9 @@ class Config:
     offline_explainer = False
     
     random_seed = 42
+    
+    
+    use_embedding_sae = False  
 
     @property
     def device_map(self):

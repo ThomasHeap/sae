@@ -10,10 +10,9 @@ import pandas as pd
 from sklearn.metrics import roc_curve, auc
 from scipy import stats
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Plot model comparisons with multiple metrics')
-    parser.add_argument('--dataset', type=str, required=True, 
-                      help='Dataset name (e.g., wikitext_wikitext-103-raw-v1 or redpajama-data-1t-sample)')
     parser.add_argument('--base-dir', type=str, default='saved_latents',
                       help='Base directory containing model results')
     parser.add_argument('--n-features', type=int, default=30,
@@ -85,7 +84,7 @@ def calculate_metrics_with_counts(data: List[Dict]) -> Dict[str, float]:
         'total_n': total_n
     }
 
-def save_statistics_csv(model_stats: Dict, dataset_name: str, n_features: int, save_path: Path):
+def save_statistics_csv(model_stats: Dict, n_features: int, save_path: Path):
     """Save detailed statistics for each model and layer to a CSV file"""
     # Prepare data for DataFrame
     rows = []
@@ -189,14 +188,14 @@ def calculate_roc_data(data: List[Dict]) -> Dict[str, np.ndarray]:
     # Calculate bootstrapped ROC data
     return bootstrap_roc(y_true, y_prob)
 
-def plot_roc_curves(base_dir: Path, dataset_name: str, n_features: int, 
+def plot_roc_curves(base_dir: Path, n_features: int, 
                     seed: int = None, scorer_type: str = 'detection'):
     """Create ROC curve plots with confidence bands"""
     model_dirs = [d for d in base_dir.iterdir() 
-                 if d.is_dir() and (d.name.startswith("latents_" + dataset_name) or d.name == "random_noise")]
+                 if d.is_dir() and not (d.name.startswith("comparison"))]
     
     if not model_dirs:
-        print(f"No models found for dataset {dataset_name}")
+        print(f"No models found for {base_dir}")
         return
     
     # Create subplot grid for each layer
@@ -273,7 +272,7 @@ def plot_roc_curves(base_dir: Path, dataset_name: str, n_features: int,
     if len(valid_layers) < len(axes):
         fig.delaxes(axes[-1])
     
-    plt.suptitle(f'{dataset_name} ROC Curves ({scorer_type})\n{n_features} features per layer',
+    plt.suptitle(f'ROC Curves ({scorer_type})\n{n_features} features per layer',
                  fontsize=16, y=1.02)
     plt.tight_layout()
     
@@ -282,29 +281,29 @@ def plot_roc_curves(base_dir: Path, dataset_name: str, n_features: int,
     plots_dir.mkdir(parents=True, exist_ok=True)
     
     # Save plots
-    roc_path = plots_dir / f"{dataset_name}_roc_curves_{n_features}features.pdf"
+    roc_path = plots_dir / f"roc_curves_{n_features}features.pdf"
     plt.savefig(roc_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.savefig(plots_dir / f"{dataset_name}_roc_curves_{n_features}features.png",
+    plt.savefig(plots_dir / f"roc_curves_{n_features}features.png",
                 dpi=300, bbox_inches='tight', facecolor='white')
     
     # Save AUC scores to CSV
     auc_df = pd.DataFrame(auc_scores)
-    auc_path = plots_dir / f"{dataset_name}_auc_scores_{n_features}features.csv"
+    auc_path = plots_dir / f"auc_scores_{n_features}features.csv"
     auc_df.to_csv(auc_path, index=False)
     
     plt.close()
     print(f"ROC curves saved as {roc_path}")
     print(f"AUC scores saved as {auc_path}")
     
-def plot_dataset_comparisons(base_dir: Path, dataset_name: str, n_features: int, 
+def plot_dataset_comparisons(base_dir: Path, n_features: int, 
                            y_min: float = None, y_max: float = None, seed: int = None,
                            scorer_type: str = 'detection'):
     """Create comparison plots and save statistics to CSV for a specific scorer type"""
     model_dirs = [d for d in base_dir.iterdir() 
-                 if d.is_dir() and (d.name.startswith("latents_" + dataset_name) or d.name == "random_noise")]
+                 if d.is_dir() and not (d.name.startswith("comparison"))]
     
     if not model_dirs:
-        print(f"No models found for dataset {dataset_name}")
+        print(f"No models found for {base_dir}")
         return
     
     # Create a 3x2 subplot grid for metrics
@@ -409,7 +408,7 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, n_features: int,
     for ax, (metric, metric_label) in zip(axes, metrics_to_plot):
         ax.set_xlabel('Layer', fontsize=12)
         ax.set_ylabel(metric_label, fontsize=12)
-        ax.set_title(f'{dataset_name} ({scorer_type})\n{metric_label}{feature_str}',
+        ax.set_title(f'({scorer_type})\n{metric_label}{feature_str}',
                     fontsize=14, pad=20)
         ax.grid(True, linestyle='--', alpha=0.7)
         ax.legend(frameon=True, fontsize=10, loc='center left', bbox_to_anchor=(1, 0.5))
@@ -432,14 +431,14 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, n_features: int,
     plots_dir.mkdir(parents=True, exist_ok=True)
     
     # Save metrics plots
-    metrics_path = plots_dir / f"{dataset_name}_model_comparisons_{n_features}features.pdf"
+    metrics_path = plots_dir / f"model_comparisons_{n_features}features.pdf"
     plt.savefig(metrics_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.savefig(plots_dir / f"{dataset_name}_model_comparisons_{n_features}features.png", 
+    plt.savefig(plots_dir / f"model_comparisons_{n_features}features.png", 
                 dpi=300, bbox_inches='tight', facecolor='white')
     
     # Save statistics to CSV
-    stats_path = plots_dir / f"{dataset_name}_statistics_{n_features}features.csv"
-    save_statistics_csv(all_model_stats, dataset_name, n_features, stats_path)
+    stats_path = plots_dir / f"statistics_{n_features}features.csv"
+    save_statistics_csv(all_model_stats, n_features, stats_path)
     
     plt.close('all')
     print(f"\nPlots saved as {metrics_path}")
@@ -447,9 +446,8 @@ def plot_dataset_comparisons(base_dir: Path, dataset_name: str, n_features: int,
 
 def main():
     args = parse_args()
-    base_dir = Path(args.base_dir)
+    base_dir = Path(args.base_dir) 
     
-    print(f"Processing dataset: {args.dataset}")
     print(f"Looking for models in: {base_dir}")
     print(f"Sampling {args.n_features} features per layer")
     
@@ -457,11 +455,11 @@ def main():
     for scorer_type in ['detection', 'fuzz']:
         print(f"\nProcessing {scorer_type} scores...")
         # Generate regular plots
-        plot_dataset_comparisons(base_dir, args.dataset, args.n_features, 
+        plot_dataset_comparisons(base_dir, args.n_features, 
                                args.y_min, args.y_max, args.seed,
                                scorer_type=scorer_type)
         # Generate ROC curves
-        plot_roc_curves(base_dir, args.dataset, args.n_features,
+        plot_roc_curves(base_dir, args.n_features,
                        args.seed, scorer_type=scorer_type)
 
 if __name__ == "__main__":
